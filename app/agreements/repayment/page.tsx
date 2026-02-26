@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { toast } from "react-toastify";
 import { authService } from "@/services/auth.service";
+import { getHeaders } from "@/services/api.config";
 
 interface Staff {
     id: number;
@@ -93,9 +94,8 @@ export default function RepaymentPage() {
     const fetchStaffs = useCallback(async () => {
         try {
             setStaffLoading(true);
-            const token = localStorage.getItem("token");
             const response = await fetch(`${API_URL}/staffs/by-role/field_officer`, {
-                headers: { Authorization: `Bearer ${token}` }
+                headers: getHeaders()
             });
             const result = await response.json();
             if (result.status === "success") {
@@ -115,9 +115,8 @@ export default function RepaymentPage() {
         }
         try {
             setCenterLoading(true);
-            const token = localStorage.getItem("token");
             const response = await fetch(`${API_URL}/centers?staff_id=${staffId}`, {
-                headers: { Authorization: `Bearer ${token}` }
+                headers: getHeaders()
             });
             const result = await response.json();
             if (result.status === "success") {
@@ -137,9 +136,8 @@ export default function RepaymentPage() {
         }
         try {
             setLoading(true);
-            const token = localStorage.getItem("token");
             const response = await fetch(`${API_URL}/collections/repayment-sheet?staff_id=${selectedStaff}&${selectedCenters.map(id => `center_ids[]=${id}`).join('&')}`, {
-                headers: { Authorization: `Bearer ${token}` }
+                headers: getHeaders()
             });
             const result = await response.json();
             if (result.success) {
