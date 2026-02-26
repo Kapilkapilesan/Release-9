@@ -19,7 +19,8 @@ import {
 } from "lucide-react";
 import { toast } from "react-toastify";
 import { authService } from "@/services/auth.service";
-import { getHeaders } from "@/services/api.config";
+import { API_BASE_URL, getHeaders } from "@/services/api.config";
+
 
 interface Staff {
     id: number;
@@ -78,7 +79,6 @@ export default function RepaymentPage() {
     const dropdownRef = useRef<HTMLDivElement>(null);
     const printRef = useRef<HTMLDivElement>(null);
 
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -94,19 +94,84 @@ export default function RepaymentPage() {
     const fetchStaffs = useCallback(async () => {
         try {
             setStaffLoading(true);
-            const response = await fetch(`${API_URL}/staffs/by-role/field_officer`, {
+            const response = await fetch(`${API_BASE_URL}/staffs/by-role/field_officer`, {
                 headers: getHeaders()
             });
             const result = await response.json();
-            if (result.status === "success") {
-                setStaffs(result.data);
+            
+            console.log("Fetch Staffs Result:", result);
+
+            // Robust data extraction
+            let rawItems: any[] = [];
+            if (result?.data?.items && Array.isArray(result.data.items)) {
+                rawItems = result.data.items;
+            } else if (result?.data?.data && Array.isArray(result.data.data)) {
+                rawItems = result.data.data;
+            } else if (result?.data && Array.isArray(result.data)) {
+                rawItems = result.data;
+            } else if (Array.isArray(result)) {
+                rawItems = result;
+            } else if (result?.status === "success" && result?.data) {
+                if (Array.isArray(result.data)) rawItems = result.data;
+                else if (result.data.data && Array.isArray(result.data.data)) rawItems = result.data.data;
             }
+            
+            // Explicit mapping to ensure staff_id and full_name are populated
+            const mappedItems: Staff[] = rawItems.map((item: any) => ({
+                id: item.id || 0,
+                staff_id: item.staff_id || item.staffId || item.user_name || item.username || String(item.id),
+                full_name: item.full_name || item.fullName || item.name || item.display_name || "Unknown Staff",
+                role: item.role || 'field_officer'
+            }));
+
+            // Guaranteed Fallback: Ensure current user is present if they are a field officer
+            const currentUser = authService.getCurrentUser();
+            const storedRolesStr = localStorage.getItem("roles");
+            let isFieldOfficer = false;
+            
+            if (storedRolesStr) {
+                try {
+                    const roles = JSON.parse(storedRolesStr);
+                    isFieldOfficer = Array.isArray(roles) && roles.some((r: any) => r.name === 'field_officer');
+                } catch (e) {}
+            }
+
+            if (currentUser && isFieldOfficer) {
+                const staffId = currentUser.staff_id || currentUser.user_name;
+                if (staffId && !mappedItems.some(s => s.staff_id === staffId)) {
+                    mappedItems.unshift({
+                        id: currentUser.id || 0,
+                        staff_id: staffId,
+                        full_name: currentUser.full_name || currentUser.name || currentUser.display_name || staffId,
+                        role: 'field_officer'
+                    });
+                }
+            }
+
+            // Filter out invalid items
+            const finalStaffs = mappedItems.filter(item => item.staff_id && item.full_name);
+            
+            setStaffs(finalStaffs);
+
         } catch (error) {
             console.error("Failed to fetch staffs", error);
+            // Even on error, try to show the current user
+            const currentUser = authService.getCurrentUser();
+            if (currentUser) {
+                const staffId = currentUser.staff_id || currentUser.user_name;
+                if (staffId && !selectedStaff) {
+                    setStaffs([{
+                        id: currentUser.id || 0,
+                        staff_id: staffId,
+                        full_name: currentUser.full_name || currentUser.name || currentUser.display_name || staffId,
+                        role: 'field_officer'
+                    }]);
+                }
+            }
         } finally {
             setStaffLoading(false);
         }
-    }, [API_URL]);
+    }, []);
 
     const fetchCenters = useCallback(async (staffId: string) => {
         if (!staffId) {
@@ -115,7 +180,7 @@ export default function RepaymentPage() {
         }
         try {
             setCenterLoading(true);
-            const response = await fetch(`${API_URL}/centers?staff_id=${staffId}`, {
+            const response = await fetch(`${API_BASE_URL}/centers?staff_id=${staffId}`, {
                 headers: getHeaders()
             });
             const result = await response.json();
@@ -127,7 +192,7 @@ export default function RepaymentPage() {
         } finally {
             setCenterLoading(false);
         }
-    }, [API_URL]);
+    }, []);
 
     const fetchRepaymentData = useCallback(async () => {
         if (!selectedStaff || selectedCenters.length === 0) {
@@ -136,7 +201,7 @@ export default function RepaymentPage() {
         }
         try {
             setLoading(true);
-            const response = await fetch(`${API_URL}/collections/repayment-sheet?staff_id=${selectedStaff}&${selectedCenters.map(id => `center_ids[]=${id}`).join('&')}`, {
+            const response = await fetch(`${API_BASE_URL}/collections/repayment-sheet?staff_id=${selectedStaff}&${selectedCenters.map(id => `center_ids[]=${id}`).join('&')}`, {
                 headers: getHeaders()
             });
             const result = await response.json();
@@ -151,11 +216,33 @@ export default function RepaymentPage() {
         } finally {
             setLoading(false);
         }
-    }, [selectedStaff, selectedCenters, API_URL]);
+    }, [selectedStaff, selectedCenters]);
 
     useEffect(() => {
         fetchStaffs();
     }, [fetchStaffs]);
+
+    useEffect(() => {
+        if (!selectedStaff && staffs.length > 0) {
+            const currentUser = authService.getCurrentUser();
+            const storedRolesStr = localStorage.getItem("roles");
+            let isFieldOfficer = false;
+            
+            if (storedRolesStr) {
+                try {
+                    const roles = JSON.parse(storedRolesStr);
+                    isFieldOfficer = Array.isArray(roles) && roles.some((r: any) => r.name === 'field_officer');
+                } catch (e) {}
+            }
+
+            if (currentUser && isFieldOfficer) {
+                const staffId = currentUser.staff_id || currentUser.user_name;
+                if (staffId && staffs.some(s => s.staff_id === staffId)) {
+                    setSelectedStaff(staffId);
+                }
+            }
+        }
+    }, [staffs, selectedStaff]);
 
     useEffect(() => {
         if (selectedStaff) {
